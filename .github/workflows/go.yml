@@ -1,52 +1,87 @@
-name: Build, Test and Release Binaries
-on: push
+name: ci
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+  push:
 
 permissions:
-  contents: write
-  packages: write
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build:
+  check:
     runs-on: ubuntu-latest
+
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: 1.25.x
-          cache: false
-      - uses: actions/checkout@v6
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@v9
-        with:
-          version: v2.7.1
-      - name: go build
-        run: go build ./...
-      - name: go test
-        run: go test -v ./...
+          go-version-file: go.mod
 
-  release:
-    if: startsWith(github.event.ref, 'refs/tags/v')
-    needs: build
+      - name: Install golangci-lint
+        run: |
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.7.1
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Run checks
+        run: make check
+
+      - name: Build binary
+        run: make build
+
+  package-pr:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    needs: check
     runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
     steps:
-      - name: Checkout Repository
+      - name: Checkout repository
         uses: actions/checkout@v6
-      - name: Login to GitHub Container Registry
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Build container binary
+        run: go build -o external-dns-t-cloud-public-webhook ./cmd/webhook
+
+      - name: Log in to GitHub Container Registry
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Setup Go
-        uses: actions/setup-go@v6
-        with:
-          go-version: 1.25.x
 
-      - name: Run Goreleaser
-        if: ${{ github.event_name != 'pull_request' }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        uses: goreleaser/goreleaser-action@v7
+      - name: Compute image metadata
+        id: meta
+        uses: docker/metadata-action@v5
         with:
-          version: "~> v2"
-          args: release --clean
+          images: ghcr.io/${{ github.repository_owner }}/external-dns-t-cloud-public-webhook
+          tags: |
+            type=raw,value=pr-${{ github.event.pull_request.number }}
+            type=raw,value=pr-${{ github.event.pull_request.number }}-${{ github.sha }}
+
+      - name: Build and push PR package
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: goreleaser.dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

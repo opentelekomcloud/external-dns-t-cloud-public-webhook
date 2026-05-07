@@ -35,6 +35,9 @@ import (
 import "external-dns-t-cloud-public-webhook/internal/dns/client"
 
 const (
+	ZoneTypePublic  = "public"
+	ZoneTypePrivate = "private"
+
 	// ID of the RecordSet from which endpoint was created
 	dnsRecordSetID = "dns-recordset-id"
 	// Zone ID of the RecordSet
@@ -53,20 +56,38 @@ type dnsProvider struct {
 
 	// only consider hosted zones managing domains ending in this suffix
 	domainFilter endpoint.DomainFilter
+	zoneType     string
 	dryRun       bool
 }
 
 // NewDNSProvider is a factory function for T-Cloud Public DNS providers
-func NewDNSProvider(domainFilter endpoint.DomainFilter, dryRun bool) (provider.Provider, error) {
-	client, err := client.NewDNSClient()
+func NewDNSProvider(domainFilter endpoint.DomainFilter, zoneType string, dryRun bool) (provider.Provider, error) {
+	c, err := client.NewDNSClient(zoneType)
 	if err != nil {
 		return nil, err
 	}
 	return &dnsProvider{
-		client:       client,
+		client:       c,
 		domainFilter: domainFilter,
+		zoneType:     zoneType,
 		dryRun:       dryRun,
 	}, nil
+}
+
+func IsSupportedZoneType(zoneType string) bool {
+	switch strings.ToLower(zoneType) {
+	case ZoneTypePublic, ZoneTypePrivate:
+		return true
+	default:
+		return false
+	}
+}
+
+func zoneMatchesVisibility(zone *zones.Zone, zoneType string) bool {
+	if zoneType == "" || zone.ZoneType == "" {
+		return true
+	}
+	return strings.EqualFold(zone.ZoneType, zoneType)
 }
 
 // converts domain names to FQDN
@@ -95,7 +116,7 @@ func (p dnsProvider) getZones(ctx context.Context) (map[string]string, error) {
 
 	err := p.client.ForEachZone(ctx,
 		func(zone *zones.Zone) error {
-			if zone.ZoneType != "" && strings.ToUpper(zone.ZoneType) != "PRIMARY" || zone.Status == "DELETE" {
+			if zone.Status == "DELETE" || !zoneMatchesVisibility(zone, p.zoneType) {
 				return nil
 			}
 

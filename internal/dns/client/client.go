@@ -53,15 +53,16 @@ type DNSClientInterface interface {
 // implementation of the DNSClientInterface
 type dnsClient struct {
 	serviceClient *golangsdk.ServiceClient
+	zoneType      string
 }
 
 // factory function for the DNSClientInterface
-func NewDNSClient() (DNSClientInterface, error) {
+func NewDNSClient(zoneType string) (DNSClientInterface, error) {
 	serviceClient, err := createDNSServiceClient()
 	if err != nil {
 		return nil, err
 	}
-	return &dnsClient{serviceClient}, nil
+	return &dnsClient{serviceClient: serviceClient, zoneType: zoneType}, nil
 }
 
 // authenticate in T-Cloud Public and obtain DNS service endpoint
@@ -97,7 +98,11 @@ func createDNSServiceClient() (*golangsdk.ServiceClient, error) {
 func (c dnsClient) ForEachZone(ctx context.Context, handler func(zone *zones.Zone) error) error {
 	startTime := time.Now()
 
-	pager := zones.List(c.serviceClient, zones.ListOpts{})
+	listOpts := zones.ListOpts{}
+	if c.zoneType != "" {
+		listOpts.Type = c.zoneType
+	}
+	pager := zones.List(c.serviceClient, listOpts)
 	var pageCount int
 	var zoneCount int
 

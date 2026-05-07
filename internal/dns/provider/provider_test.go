@@ -128,7 +128,15 @@ func (c fakeDNSClient) DeleteRecordSet(ctx context.Context, zoneID, recordSetID 
 }
 
 func (c fakeDNSClient) ToProvider() provider.Provider {
-	return &dnsProvider{client: c}
+	return c.ToProviderWithZoneType(ZoneTypePublic)
+}
+
+func (c fakeDNSClient) ToProviderWithZoneType(zoneType string) provider.Provider {
+	return &dnsProvider{
+		client:       c,
+		domainFilter: endpoint.DomainFilter{},
+		zoneType:     zoneType,
+	}
 }
 
 func newFakeDNSClient() *fakeDNSClient {
@@ -263,7 +271,7 @@ clouds:
 	os.Setenv("OS_CLIENT_CONFIG_FILE", tmpcloudsyaml.Name())
 	os.Setenv("OS_CLOUD", "unittest")
 
-	if _, err := NewDNSProvider(endpoint.DomainFilter{}, true); err != nil {
+	if _, err := NewDNSProvider(endpoint.DomainFilter{}, ZoneTypePublic, true); err != nil {
 		t.Fatalf("Failed to initialize DNS provider: %s", err)
 	}
 }
@@ -274,7 +282,7 @@ func TestDNSRecords(t *testing.T) {
 
 	zone1ID := client.AddZone(ctx, zones.Zone{
 		Name:     "example.com.",
-		ZoneType: "PRIMARY",
+		ZoneType: ZoneTypePublic,
 		Status:   "ACTIVE",
 	})
 	rs11ID, _ := client.CreateRecordSet(ctx, zone1ID, recordsets.CreateOpts{
@@ -301,7 +309,7 @@ func TestDNSRecords(t *testing.T) {
 
 	zone2ID := client.AddZone(ctx, zones.Zone{
 		Name:     "test.net.",
-		ZoneType: "PRIMARY",
+		ZoneType: ZoneTypePublic,
 		Status:   "ACTIVE",
 	})
 	rs21ID, _ := client.CreateRecordSet(ctx, zone2ID, recordsets.CreateOpts{
@@ -387,9 +395,108 @@ out:
 	}
 }
 
+func TestDNSRecordsPrivateZones(t *testing.T) {
+	client := newFakeDNSClient()
+	ctx := context.TODO()
+
+	privateZoneID := client.AddZone(ctx, zones.Zone{
+		ID:       "private-example-internal",
+		Name:     "example.internal.",
+		ZoneType: ZoneTypePrivate,
+		Status:   "ACTIVE",
+	})
+	publicZoneID := client.AddZone(ctx, zones.Zone{
+		ID:       "public-example-internal",
+		Name:     "example.internal.",
+		ZoneType: ZoneTypePublic,
+		Status:   "ACTIVE",
+	})
+
+	privateRecordID, _ := client.CreateRecordSet(ctx, privateZoneID, recordsets.CreateOpts{
+		Name:    "api.example.internal.",
+		Type:    endpoint.RecordTypeA,
+		Records: []string{"10.10.0.5"},
+	})
+	client.CreateRecordSet(ctx, publicZoneID, recordsets.CreateOpts{
+		Name:    "api.example.internal.",
+		Type:    endpoint.RecordTypeA,
+		Records: []string{"198.51.100.5"},
+	})
+
+	endpoints, err := client.ToProviderWithZoneType(ZoneTypePrivate).Records(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expected := []*endpoint.Endpoint{
+		{
+			DNSName:    "api.example.internal",
+			RecordType: endpoint.RecordTypeA,
+			Targets:    endpoint.Targets{"10.10.0.5"},
+			Labels: map[string]string{
+				dnsRecordSetID:     privateRecordID,
+				dnsZoneID:          privateZoneID,
+				dnsOriginalRecords: "10.10.0.5",
+			},
+		},
+	}
+
+	if !reflect.DeepEqual(endpoints, expected) {
+		t.Fatalf("unexpected private zone records: got=%v want=%v", endpoints, expected)
+	}
+}
+
 func TestDNSCreateRecords(t *testing.T) {
 	client := newFakeDNSClient()
 	testDNSCreateRecords(t, client)
+}
+
+func TestDNSCreateRecordsPrivateZones(t *testing.T) {
+	client := newFakeDNSClient()
+	ctx := context.TODO()
+
+	publicZoneID := client.AddZone(ctx, zones.Zone{
+		ID:       "public-zone",
+		Name:     "example.internal.",
+		ZoneType: ZoneTypePublic,
+		Status:   "ACTIVE",
+	})
+	privateZoneID := client.AddZone(ctx, zones.Zone{
+		ID:       "private-zone",
+		Name:     "example.internal.",
+		ZoneType: ZoneTypePrivate,
+		Status:   "ACTIVE",
+	})
+
+	endpoints := []*endpoint.Endpoint{
+		{
+			DNSName:    "api.example.internal",
+			RecordType: endpoint.RecordTypeA,
+			Targets:    endpoint.Targets{"10.0.0.7"},
+			Labels:     map[string]string{},
+		},
+	}
+
+	err := client.ToProviderWithZoneType(ZoneTypePrivate).ApplyChanges(context.Background(), &plan.Changes{Create: endpoints})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	privateZone := client.managedZones[privateZoneID]
+	if len(privateZone.recordSets) != 1 {
+		t.Fatalf("expected one private record-set, got %d", len(privateZone.recordSets))
+	}
+
+	publicZone := client.managedZones[publicZoneID]
+	if len(publicZone.recordSets) != 0 {
+		t.Fatalf("expected no public record-sets, got %d", len(publicZone.recordSets))
+	}
+
+	for _, rs := range privateZone.recordSets {
+		if rs.ZoneID != privateZoneID || rs.Name != "api.example.internal." {
+			t.Fatalf("unexpected private record-set created: %+v", rs)
+		}
+	}
 }
 
 func testDNSCreateRecords(t *testing.T, client *fakeDNSClient) []*recordsets.RecordSet {
@@ -398,7 +505,7 @@ func testDNSCreateRecords(t *testing.T, client *fakeDNSClient) []*recordsets.Rec
 		client.AddZone(ctx, zones.Zone{
 			ID:       fmt.Sprintf("zone-%d", i+1),
 			Name:     zoneName,
-			ZoneType: "PRIMARY",
+			ZoneType: ZoneTypePublic,
 			Status:   "ACTIVE",
 		})
 	}

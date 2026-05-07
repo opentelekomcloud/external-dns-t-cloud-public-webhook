@@ -35,6 +35,16 @@ which provides the T-Cloud Public IAM credentials to the webhook provider.
 `OS_*` environment variables are not supported for configuration, since the use of a `clouds.yaml` file offers more structure, capabilities and allows for better validation.
 The one exception to this is `OS_CLOUD` for setting the name of the cloud in `clouds.yaml` to use.
 
+By default, the webhook manages public DNS zones. To manage private zones in a container, set:
+
+```yaml
+env:
+  - name: OS_ZONE_TYPE
+    value: private
+```
+
+Supported values are `public` and `private`. The `--zone-type` flag is still available and overrides `OS_ZONE_TYPE`.
+
 The following example is a basic example of a `clouds.yaml` file, using `t-cloud-public` as the cloud name (the default used by this webhook):
 
 ```yaml
@@ -68,4 +78,10 @@ You can then start the webhook server using:
 
 ```sh
 go run cmd/webhook/main.go
+```
+
+For private zones, run:
+
+```sh
+OS_ZONE_TYPE=private go run cmd/webhook/main.go
 ```
