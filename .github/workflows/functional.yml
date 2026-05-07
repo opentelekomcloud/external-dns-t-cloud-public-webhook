@@ -92,7 +92,7 @@ jobs:
             exit 1
           fi
 
-          zone_id="$(openstack zone list --name "$zone_name" -f value -c id | head -n1)"
+          zone_id="$(openstack dns zone list --name "$zone_name" -f value -c id | head -n1)"
           if [ -z "$zone_id" ]; then
             echo "Unable to resolve zone $zone_name" >&2
             exit 1
