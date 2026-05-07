@@ -84,12 +84,14 @@ jobs:
         env:
           IMAGE_TAG: pr-${{ github.event.pull_request.number }}-${{ github.sha }}
           MATRIX_ZONE_TYPE: ${{ matrix.zone_type }}
+          ZONE_NAME: ${{ steps.zone.outputs.zone_name }}
         run: bash ./scripts/ci/start_webhook_pr.sh
 
       - name: Start webhook from source
         if: github.event_name != 'pull_request'
         env:
           MATRIX_ZONE_TYPE: ${{ matrix.zone_type }}
+          ZONE_NAME: ${{ steps.zone.outputs.zone_name }}
         run: bash ./scripts/ci/start_webhook_source.sh
 
       - name: Wait for webhook health
@@ -106,6 +108,7 @@ jobs:
 
       - name: Run external-dns connector source
         env:
+          ZONE_NAME: ${{ steps.zone.outputs.zone_name }}
           TXT_OWNER_ID: ci-${{ github.run_id }}-${{ matrix.zone_type }}
         run: bash ../scripts/ci/run_external_dns_connector.sh
         working-directory: ./external-dns

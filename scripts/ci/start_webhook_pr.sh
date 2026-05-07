@@ -6,6 +6,11 @@ if [[ -z "${IMAGE_TAG:-}" ]]; then
   exit 1
 fi
 
+if [[ -z "${ZONE_NAME:-}" ]]; then
+  echo "ZONE_NAME is required" >&2
+  exit 1
+fi
+
 image="ghcr.io/${GITHUB_REPOSITORY_OWNER}/external-dns-t-cloud-public-webhook:${IMAGE_TAG}"
 
 echo "Starting webhook container from image: ${image}"
@@ -34,7 +39,8 @@ container_id="$(
   -e ZONE_TYPE="${MATRIX_ZONE_TYPE}" \
   -e OS_ZONE_TYPE="${MATRIX_ZONE_TYPE}" \
   -v "$PWD/.ci/t-cloud-public:/etc/t-cloud-public:ro" \
-  "${image}"
+  "${image}" \
+  --domain-filter "${ZONE_NAME}"
 )"
 
 echo "Started container id: ${container_id}"
