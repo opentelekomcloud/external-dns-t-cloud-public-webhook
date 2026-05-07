@@ -12,6 +12,18 @@ echo "Starting webhook container from image: ${image}"
 echo "Using zone type: ${MATRIX_ZONE_TYPE}"
 echo "Using cloud entry: ${OS_CLOUD}"
 
+for attempt in $(seq 1 30); do
+  if docker pull "${image}"; then
+    break
+  fi
+  if [[ "${attempt}" -eq 30 ]]; then
+    echo "Image did not become available in GHCR: ${image}" >&2
+    exit 1
+  fi
+  echo "Image not available yet, retrying in 10s (${attempt}/30)..."
+  sleep 10
+done
+
 container_id="$(
   docker run -d \
   --name webhook \

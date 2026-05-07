@@ -84,7 +84,7 @@ jobs:
       - name: Start webhook from PR package
         if: github.event_name == 'pull_request'
         env:
-          IMAGE_TAG: pr-${{ github.event.pull_request.number }}-${{ github.sha }}
+          IMAGE_TAG: pr-${{ github.event.pull_request.number }}
           MATRIX_ZONE_TYPE: ${{ matrix.zone_type }}
         run: bash ./scripts/ci/start_webhook_pr.sh
 
