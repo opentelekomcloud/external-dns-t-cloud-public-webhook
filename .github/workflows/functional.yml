@@ -101,11 +101,15 @@ jobs:
         run: make build
         working-directory: ./external-dns
 
-      - name: Run external-dns fake source
+      - name: Start connector source
         env:
           ZONE_NAME: ${{ steps.zone.outputs.zone_name }}
+        run: bash ./scripts/ci/start_connector_source.sh
+
+      - name: Run external-dns connector source
+        env:
           TXT_OWNER_ID: ci-${{ github.run_id }}-${{ matrix.zone_type }}
-        run: bash ../scripts/ci/run_external_dns_fake.sh
+        run: bash ../scripts/ci/run_external_dns_connector.sh
         working-directory: ./external-dns
 
       - name: Wait for DNS changes to settle
@@ -121,6 +125,10 @@ jobs:
       - name: Show webhook log
         if: always() && github.event_name != 'pull_request'
         run: cat /tmp/webhook.log
+
+      - name: Show connector source log
+        if: always()
+        run: cat /tmp/connector-source.log
 
       - name: Show container log
         if: always() && github.event_name == 'pull_request'
