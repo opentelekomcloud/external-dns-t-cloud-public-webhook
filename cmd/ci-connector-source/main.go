@@ -2,9 +2,11 @@ package main
 
 import (
 	"encoding/gob"
+	"errors"
 	"fmt"
 	"net"
 	"os"
+	"syscall"
 
 	"sigs.k8s.io/external-dns/endpoint"
 )
@@ -36,6 +38,10 @@ func main() {
 
 		if err := gob.NewEncoder(conn).Encode(endpoints); err != nil {
 			_ = conn.Close()
+			if isTransientDisconnect(err) {
+				fmt.Fprintf(os.Stderr, "client disconnected before reading endpoints: %v\n", err)
+				continue
+			}
 			fatalf("encode endpoints: %v", err)
 		}
 
@@ -74,4 +80,10 @@ func getenv(name, fallback string) string {
 func fatalf(format string, args ...any) {
 	fmt.Fprintf(os.Stderr, format+"\n", args...)
 	os.Exit(1)
+}
+
+func isTransientDisconnect(err error) bool {
+	return errors.Is(err, net.ErrClosed) ||
+		errors.Is(err, syscall.EPIPE) ||
+		errors.Is(err, syscall.ECONNRESET)
 }

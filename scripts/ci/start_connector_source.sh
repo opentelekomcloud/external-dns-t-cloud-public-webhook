@@ -7,8 +7,6 @@ if [[ -z "${ZONE_NAME:-}" ]]; then
 fi
 
 connector_addr="${CONNECTOR_SOURCE_SERVER:-127.0.0.1:18080}"
-connector_host="${connector_addr%:*}"
-connector_port="${connector_addr##*:}"
 
 nohup env \
   ZONE_NAME="${ZONE_NAME}" \
@@ -21,9 +19,7 @@ echo $! >/tmp/connector-source.pid
 echo "Started connector source on ${connector_addr}"
 
 for _ in $(seq 1 60); do
-  if bash -c "exec 3<>/dev/tcp/${connector_host}/${connector_port}" 2>/dev/null; then
-    exec 3>&-
-    exec 3<&-
+  if grep -q "connector source listening on ${connector_addr}" /tmp/connector-source.log 2>/dev/null; then
     echo "Connector source is ready on ${connector_addr}"
     exit 0
   fi
