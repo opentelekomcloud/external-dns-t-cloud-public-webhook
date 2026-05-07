@@ -13,7 +13,7 @@ echo "Using zone type: ${MATRIX_ZONE_TYPE}"
 echo "Using cloud entry: ${OS_CLOUD}"
 
 container_id="$(
-  docker run -d --rm \
+  docker run -d \
   --name webhook \
   -p 8888:8888 \
   -p 8080:8080 \
@@ -30,4 +30,7 @@ docker ps -a --filter "id=${container_id}"
 
 sleep 2
 echo "Initial container logs:"
-docker logs "${container_id}" || true
+docker logs webhook || true
+
+echo "Container state after initial wait:"
+docker inspect --format '{{.State.Status}}' webhook || true

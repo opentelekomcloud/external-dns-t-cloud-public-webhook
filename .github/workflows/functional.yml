@@ -73,10 +73,6 @@ jobs:
           OS_ZONE_EMAIL: ${{ secrets.OS_ZONE_EMAIL }}
         run: python ./scripts/ci/create_test_zone.py
 
-      - name: Build external-dns
-        run: make build
-        working-directory: ./external-dns
-
       - name: Log in to GitHub Container Registry
         if: github.event_name == 'pull_request'
         uses: docker/login-action@v4
@@ -100,6 +96,10 @@ jobs:
 
       - name: Wait for webhook health
         run: bash ./scripts/ci/wait_webhook_health.sh
+
+      - name: Build external-dns
+        run: make build
+        working-directory: ./external-dns
 
       - name: Run external-dns fake source
         env:
@@ -125,6 +125,10 @@ jobs:
       - name: Show container log
         if: always() && github.event_name == 'pull_request'
         run: docker logs webhook
+
+      - name: Cleanup webhook container
+        if: always() && github.event_name == 'pull_request'
+        run: docker rm -f webhook || true
 
       - name: Cleanup test zone
         if: always() && steps.zone.outputs.zone_id != ''
