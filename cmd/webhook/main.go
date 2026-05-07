@@ -7,8 +7,8 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
 
-	"external-dns-openstack-webhook/internal/designate/provider"
-	"external-dns-openstack-webhook/internal/metrics"
+	"external-dns-t-cloud-public-webhook/internal/dns/provider"
+	"external-dns-t-cloud-public-webhook/internal/metrics"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"sigs.k8s.io/external-dns/endpoint"
@@ -61,13 +61,13 @@ func main() {
 	}()
 
 	epf := endpoint.NewDomainFilter(domainFilters)
-	dp, err := provider.NewDesignateProvider(*epf, false)
+	dp, err := provider.NewDNSProvider(*epf, false)
 	if err != nil {
-		log.Fatalf("NewDesignateProvider: %v", err)
-		metrics.OpenstackConnectionMetric.Set(0)
+		log.Fatalf("NewDNSProvider: %v", err)
+		metrics.TCloudPublicConnectionMetric.Set(0)
 	}
-	metrics.OpenstackConnectionMetric.Set(1)
-	log.Debugf("Connected to OpenStack API")
+	metrics.TCloudPublicConnectionMetric.Set(1)
+	log.Debugf("Connected to T-Cloud Public API")
 
 	log.Debugf("Starting webhook server on %s", webhookServerAddr)
 	api.StartHTTPApi(dp, startedChan, 0, 0, webhookServerAddr)

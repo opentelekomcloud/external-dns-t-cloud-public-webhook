@@ -18,7 +18,6 @@ package provider
 
 import (
 	"context"
-	"encoding/pem"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -28,28 +27,28 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/gophercloud/gophercloud/v2/openstack/dns/v2/recordsets"
-	"github.com/gophercloud/gophercloud/v2/openstack/dns/v2/zones"
+	"github.com/opentelekomcloud/gophertelekomcloud/openstack/dns/v2/recordsets"
+	"github.com/opentelekomcloud/gophertelekomcloud/openstack/dns/v2/zones"
 
 	"sigs.k8s.io/external-dns/endpoint"
 	"sigs.k8s.io/external-dns/plan"
 	"sigs.k8s.io/external-dns/provider"
 )
 
-var lastGeneratedDesignateID int32
+var lastGeneratedDNSID int32
 
-func generateDesignateID() string {
-	return fmt.Sprintf("id-%d", atomic.AddInt32(&lastGeneratedDesignateID, 1))
+func generateDNSID() string {
+	return fmt.Sprintf("id-%d", atomic.AddInt32(&lastGeneratedDNSID, 1))
 }
 
-type fakeDesignateClient struct {
+type fakeDNSClient struct {
 	managedZones map[string]*struct {
 		zone       *zones.Zone
 		recordSets map[string]*recordsets.RecordSet
 	}
 }
 
-func (c fakeDesignateClient) AddZone(ctx context.Context, zone zones.Zone) string {
+func (c fakeDNSClient) AddZone(ctx context.Context, zone zones.Zone) string {
 	if zone.ID == "" {
 		zone.ID = zone.Name
 	}
@@ -63,7 +62,7 @@ func (c fakeDesignateClient) AddZone(ctx context.Context, zone zones.Zone) strin
 	return zone.ID
 }
 
-func (c fakeDesignateClient) ForEachZone(ctx context.Context, handler func(zone *zones.Zone) error) error {
+func (c fakeDNSClient) ForEachZone(ctx context.Context, handler func(zone *zones.Zone) error) error {
 	for _, zone := range c.managedZones {
 		if err := handler(zone.zone); err != nil {
 			return err
@@ -72,7 +71,7 @@ func (c fakeDesignateClient) ForEachZone(ctx context.Context, handler func(zone 
 	return nil
 }
 
-func (c fakeDesignateClient) ForEachRecordSet(ctx context.Context, zoneID string, handler func(recordSet *recordsets.RecordSet) error) error {
+func (c fakeDNSClient) ForEachRecordSet(ctx context.Context, zoneID string, handler func(recordSet *recordsets.RecordSet) error) error {
 	zone := c.managedZones[zoneID]
 	if zone == nil {
 		return fmt.Errorf("unknown zone %s", zoneID)
@@ -85,13 +84,13 @@ func (c fakeDesignateClient) ForEachRecordSet(ctx context.Context, zoneID string
 	return nil
 }
 
-func (c fakeDesignateClient) CreateRecordSet(ctx context.Context, zoneID string, opts recordsets.CreateOpts) (string, error) {
+func (c fakeDNSClient) CreateRecordSet(ctx context.Context, zoneID string, opts recordsets.CreateOpts) (string, error) {
 	zone := c.managedZones[zoneID]
 	if zone == nil {
 		return "", fmt.Errorf("unknown zone %s", zoneID)
 	}
 	rs := &recordsets.RecordSet{
-		ID:          generateDesignateID(),
+		ID:          generateDNSID(),
 		ZoneID:      zoneID,
 		Name:        opts.Name,
 		Description: opts.Description,
@@ -103,7 +102,7 @@ func (c fakeDesignateClient) CreateRecordSet(ctx context.Context, zoneID string,
 	return rs.ID, nil
 }
 
-func (c fakeDesignateClient) UpdateRecordSet(ctx context.Context, zoneID, recordSetID string, opts recordsets.UpdateOpts) error {
+func (c fakeDNSClient) UpdateRecordSet(ctx context.Context, zoneID, recordSetID string, opts recordsets.UpdateOpts) error {
 	zone := c.managedZones[zoneID]
 	if zone == nil {
 		return fmt.Errorf("unknown zone %s", zoneID)
@@ -112,16 +111,14 @@ func (c fakeDesignateClient) UpdateRecordSet(ctx context.Context, zoneID, record
 	if rs == nil {
 		return fmt.Errorf("unknown record-set %s", recordSetID)
 	}
-	if opts.Description != nil {
-		rs.Description = *opts.Description
-	}
-	rs.TTL = *opts.TTL
+	rs.Description = opts.Description
+	rs.TTL = opts.TTL
 
 	rs.Records = opts.Records
 	return nil
 }
 
-func (c fakeDesignateClient) DeleteRecordSet(ctx context.Context, zoneID, recordSetID string) error {
+func (c fakeDNSClient) DeleteRecordSet(ctx context.Context, zoneID, recordSetID string) error {
 	zone := c.managedZones[zoneID]
 	if zone == nil {
 		return fmt.Errorf("unknown zone %s", zoneID)
@@ -130,12 +127,12 @@ func (c fakeDesignateClient) DeleteRecordSet(ctx context.Context, zoneID, record
 	return nil
 }
 
-func (c fakeDesignateClient) ToProvider() provider.Provider {
-	return &designateProvider{client: c}
+func (c fakeDNSClient) ToProvider() provider.Provider {
+	return &dnsProvider{client: c}
 }
 
-func newFakeDesignateClient() *fakeDesignateClient {
-	return &fakeDesignateClient{
+func newFakeDNSClient() *fakeDNSClient {
+	return &fakeDNSClient{
 		make(map[string]*struct {
 			zone       *zones.Zone
 			recordSets map[string]*recordsets.RecordSet
@@ -143,10 +140,10 @@ func newFakeDesignateClient() *fakeDesignateClient {
 	}
 }
 
-func TestNewDesignateProvider(t *testing.T) {
+func TestNewDNSProvider(t *testing.T) {
 
-	// This simply fakes the existence of an reachable Designate API endpoint (v2)
-	tsDesignate := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	// This simply fakes the existence of a reachable DNS API endpoint (v2)
+	tsDNS := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{
       "versions": [
@@ -197,17 +194,35 @@ func TestNewDesignateProvider(t *testing.T) {
         }
 		}`))
 	}))
-	defer tsDesignate.Close()
+	defer tsDNS.Close()
 
-	// This fakes the catalog response from Keystone including the Designate endpoint
-	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusAccepted)
+	// This fakes the catalog response from IAM including the DNS endpoint
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Subject-Token", "test-token")
+		w.WriteHeader(http.StatusCreated)
 		w.Write([]byte(`{
 		  "token": {
+		    "expires_at": "2030-01-01T00:00:00Z",
+		    "project": {
+		      "id": "project-id",
+		      "name": "project-name",
+		      "domain": {
+		        "id": "domain-id",
+		        "name": "Default"
+		      }
+		    },
+		    "user": {
+		      "id": "user-id",
+		      "name": "dns-user",
+		      "domain": {
+		        "id": "domain-id",
+		        "name": "Default"
+		      }
+		    },
 		    "catalog": [
 		      {
 		        "id": "9615c2dfac3b4b19935226d4c9d4afce",
-		        "name": "designate",
+		        "name": "dns",
 		        "type": "dns",
 		        "endpoints": [
 		          {
@@ -215,7 +230,7 @@ func TestNewDesignateProvider(t *testing.T) {
 		            "region": "RegionOne",
 		            "region_id": "RegionOne",
 		            "interface": "public",
-		            "url": "` + tsDesignate.URL + `/v2"
+		            "url": "` + tsDNS.URL + `/v2"
 		          }
 		        ]
 		      }
@@ -224,22 +239,6 @@ func TestNewDesignateProvider(t *testing.T) {
 		}`))
 	}))
 	defer ts.Close()
-
-	block := &pem.Block{
-		Type:  "CERTIFICATE",
-		Bytes: ts.Certificate().Raw,
-	}
-	tmpfile, err := os.CreateTemp("", "os-test.crt")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Remove(tmpfile.Name())
-	if err := pem.Encode(tmpfile, block); err != nil {
-		t.Fatal(err)
-	}
-	if err := tmpfile.Close(); err != nil {
-		t.Fatal(err)
-	}
 
 	tmpcloudsyaml, err := os.CreateTemp("", "clouds.yaml")
 	if err != nil {
@@ -252,29 +251,31 @@ clouds:
   unittest:
     auth:
       auth_url: %s/v3
-      application_credential_id: fakefake
-      application_credential_secret: fakefake
+      username: dns-user
+      password: fakefake
+      project_name: project-name
+      user_domain_name: Default
+      project_domain_name: Default
     region_name: RegionOne
     interface: public
-    auth_type: v3applicationcredential`, ts.URL)
+    auth_type: password`, ts.URL)
 
 	os.Setenv("OS_CLIENT_CONFIG_FILE", tmpcloudsyaml.Name())
 	os.Setenv("OS_CLOUD", "unittest")
-	os.Setenv("OS_CACERT", tmpfile.Name())
 
-	if _, err := NewDesignateProvider(endpoint.DomainFilter{}, true); err != nil {
-		t.Fatalf("Failed to initialize Designate provider: %s", err)
+	if _, err := NewDNSProvider(endpoint.DomainFilter{}, true); err != nil {
+		t.Fatalf("Failed to initialize DNS provider: %s", err)
 	}
 }
 
-func TestDesignateRecords(t *testing.T) {
-	client := newFakeDesignateClient()
+func TestDNSRecords(t *testing.T) {
+	client := newFakeDNSClient()
 	ctx := context.TODO()
 
 	zone1ID := client.AddZone(ctx, zones.Zone{
-		Name:   "example.com.",
-		Type:   "PRIMARY",
-		Status: "ACTIVE",
+		Name:     "example.com.",
+		ZoneType: "PRIMARY",
+		Status:   "ACTIVE",
 	})
 	rs11ID, _ := client.CreateRecordSet(ctx, zone1ID, recordsets.CreateOpts{
 		Name:    "www.example.com.",
@@ -299,9 +300,9 @@ func TestDesignateRecords(t *testing.T) {
 	})
 
 	zone2ID := client.AddZone(ctx, zones.Zone{
-		Name:   "test.net.",
-		Type:   "PRIMARY",
-		Status: "ACTIVE",
+		Name:     "test.net.",
+		ZoneType: "PRIMARY",
+		Status:   "ACTIVE",
 	})
 	rs21ID, _ := client.CreateRecordSet(ctx, zone2ID, recordsets.CreateOpts{
 		Name:    "srv.test.net.",
@@ -319,9 +320,9 @@ func TestDesignateRecords(t *testing.T) {
 			RecordType: endpoint.RecordTypeA,
 			Targets:    endpoint.Targets{"10.1.1.1"},
 			Labels: map[string]string{
-				designateRecordSetID:     rs11ID,
-				designateZoneID:          zone1ID,
-				designateOriginalRecords: "10.1.1.1",
+				dnsRecordSetID:     rs11ID,
+				dnsZoneID:          zone1ID,
+				dnsOriginalRecords: "10.1.1.1",
 			},
 		},
 		{
@@ -329,9 +330,9 @@ func TestDesignateRecords(t *testing.T) {
 			RecordType: endpoint.RecordTypeTXT,
 			Targets:    endpoint.Targets{"text1"},
 			Labels: map[string]string{
-				designateRecordSetID:     rs12ID,
-				designateZoneID:          zone1ID,
-				designateOriginalRecords: "text1",
+				dnsRecordSetID:     rs12ID,
+				dnsZoneID:          zone1ID,
+				dnsOriginalRecords: "text1",
 			},
 		},
 		{
@@ -340,9 +341,9 @@ func TestDesignateRecords(t *testing.T) {
 			Targets:    endpoint.Targets{"10.1.1.2"},
 			RecordTTL:  120,
 			Labels: map[string]string{
-				designateRecordSetID:     rs14ID,
-				designateZoneID:          zone1ID,
-				designateOriginalRecords: "10.1.1.2",
+				dnsRecordSetID:     rs14ID,
+				dnsZoneID:          zone1ID,
+				dnsOriginalRecords: "10.1.1.2",
 			},
 		},
 		{
@@ -350,9 +351,9 @@ func TestDesignateRecords(t *testing.T) {
 			RecordType: endpoint.RecordTypeA,
 			Targets:    endpoint.Targets{"10.2.1.1", "10.2.1.2"},
 			Labels: map[string]string{
-				designateRecordSetID:     rs21ID,
-				designateZoneID:          zone2ID,
-				designateOriginalRecords: "10.2.1.1\00010.2.1.2",
+				dnsRecordSetID:     rs21ID,
+				dnsZoneID:          zone2ID,
+				dnsOriginalRecords: "10.2.1.1\00010.2.1.2",
 			},
 		},
 		{
@@ -360,9 +361,9 @@ func TestDesignateRecords(t *testing.T) {
 			RecordType: endpoint.RecordTypeCNAME,
 			Targets:    endpoint.Targets{"sql.test.net"},
 			Labels: map[string]string{
-				designateRecordSetID:     rs22ID,
-				designateZoneID:          zone2ID,
-				designateOriginalRecords: "sql.test.net.",
+				dnsRecordSetID:     rs22ID,
+				dnsZoneID:          zone2ID,
+				dnsOriginalRecords: "sql.test.net.",
 			},
 		},
 	}
@@ -386,19 +387,19 @@ out:
 	}
 }
 
-func TestDesignateCreateRecords(t *testing.T) {
-	client := newFakeDesignateClient()
-	testDesignateCreateRecords(t, client)
+func TestDNSCreateRecords(t *testing.T) {
+	client := newFakeDNSClient()
+	testDNSCreateRecords(t, client)
 }
 
-func testDesignateCreateRecords(t *testing.T, client *fakeDesignateClient) []*recordsets.RecordSet {
+func testDNSCreateRecords(t *testing.T, client *fakeDNSClient) []*recordsets.RecordSet {
 	ctx := context.TODO()
 	for i, zoneName := range []string{"example.com.", "test.net."} {
 		client.AddZone(ctx, zones.Zone{
-			ID:     fmt.Sprintf("zone-%d", i+1),
-			Name:   zoneName,
-			Type:   "PRIMARY",
-			Status: "ACTIVE",
+			ID:       fmt.Sprintf("zone-%d", i+1),
+			Name:     zoneName,
+			ZoneType: "PRIMARY",
+			Status:   "ACTIVE",
 		})
 	}
 
@@ -519,13 +520,13 @@ func testDesignateCreateRecords(t *testing.T, client *fakeDesignateClient) []*re
 	return expectedCopy
 }
 
-func TestDesignateUpdateRecords(t *testing.T) {
-	client := newFakeDesignateClient()
-	testDesignateUpdateRecords(t, client)
+func TestDNSUpdateRecords(t *testing.T) {
+	client := newFakeDNSClient()
+	testDNSUpdateRecords(t, client)
 }
 
-func testDesignateUpdateRecords(t *testing.T, client *fakeDesignateClient) []*recordsets.RecordSet {
-	expected := testDesignateCreateRecords(t, client)
+func testDNSUpdateRecords(t *testing.T, client *fakeDNSClient) []*recordsets.RecordSet {
+	expected := testDNSCreateRecords(t, client)
 	ctx := context.TODO()
 
 	updatesOld := []*endpoint.Endpoint{
@@ -535,9 +536,9 @@ func testDesignateUpdateRecords(t *testing.T, client *fakeDesignateClient) []*re
 			Targets:    endpoint.Targets{"10.1.1.2"},
 			RecordTTL:  120,
 			Labels: map[string]string{
-				designateZoneID:          "zone-1",
-				designateRecordSetID:     expected[2].ID,
-				designateOriginalRecords: "10.1.1.2",
+				dnsZoneID:          "zone-1",
+				dnsRecordSetID:     expected[2].ID,
+				dnsOriginalRecords: "10.1.1.2",
 			},
 		},
 		{
@@ -545,9 +546,9 @@ func testDesignateUpdateRecords(t *testing.T, client *fakeDesignateClient) []*re
 			RecordType: endpoint.RecordTypeA,
 			Targets:    endpoint.Targets{"10.2.1.2"},
 			Labels: map[string]string{
-				designateZoneID:          "zone-2",
-				designateRecordSetID:     expected[3].ID,
-				designateOriginalRecords: "10.2.1.1\00010.2.1.2",
+				dnsZoneID:          "zone-2",
+				dnsRecordSetID:     expected[3].ID,
+				dnsOriginalRecords: "10.2.1.1\00010.2.1.2",
 			},
 		},
 	}
@@ -558,9 +559,9 @@ func testDesignateUpdateRecords(t *testing.T, client *fakeDesignateClient) []*re
 			Targets:    endpoint.Targets{"10.3.3.1"},
 			RecordTTL:  60,
 			Labels: map[string]string{
-				designateZoneID:          "zone-1",
-				designateRecordSetID:     expected[2].ID,
-				designateOriginalRecords: "10.1.1.2",
+				dnsZoneID:          "zone-1",
+				dnsRecordSetID:     expected[2].ID,
+				dnsOriginalRecords: "10.1.1.2",
 			},
 		},
 		{
@@ -568,9 +569,9 @@ func testDesignateUpdateRecords(t *testing.T, client *fakeDesignateClient) []*re
 			RecordType: endpoint.RecordTypeA,
 			Targets:    endpoint.Targets{"10.3.3.2"},
 			Labels: map[string]string{
-				designateZoneID:          "zone-2",
-				designateRecordSetID:     expected[3].ID,
-				designateOriginalRecords: "10.2.1.1\00010.2.1.2",
+				dnsZoneID:          "zone-2",
+				dnsRecordSetID:     expected[3].ID,
+				dnsOriginalRecords: "10.2.1.1\00010.2.1.2",
 			},
 		},
 	}
@@ -607,13 +608,13 @@ func testDesignateUpdateRecords(t *testing.T, client *fakeDesignateClient) []*re
 	return expectedCopy
 }
 
-func TestDesignateDeleteRecords(t *testing.T) {
-	client := newFakeDesignateClient()
-	testDesignateDeleteRecords(t, client)
+func TestDNSDeleteRecords(t *testing.T) {
+	client := newFakeDNSClient()
+	testDNSDeleteRecords(t, client)
 }
 
-func testDesignateDeleteRecords(t *testing.T, client *fakeDesignateClient) {
-	expected := testDesignateUpdateRecords(t, client)
+func testDNSDeleteRecords(t *testing.T, client *fakeDNSClient) {
+	expected := testDNSUpdateRecords(t, client)
 	ctx := context.TODO()
 
 	deletes := []*endpoint.Endpoint{
@@ -622,9 +623,9 @@ func testDesignateDeleteRecords(t *testing.T, client *fakeDesignateClient) {
 			RecordType: endpoint.RecordTypeA,
 			Targets:    endpoint.Targets{"10.1.1.1"},
 			Labels: map[string]string{
-				designateZoneID:          "zone-1",
-				designateRecordSetID:     expected[0].ID,
-				designateOriginalRecords: "10.1.1.1",
+				dnsZoneID:          "zone-1",
+				dnsRecordSetID:     expected[0].ID,
+				dnsOriginalRecords: "10.1.1.1",
 			},
 		},
 		{
@@ -632,9 +633,9 @@ func testDesignateDeleteRecords(t *testing.T, client *fakeDesignateClient) {
 			RecordType: endpoint.RecordTypeA,
 			Targets:    endpoint.Targets{"10.2.1.1"},
 			Labels: map[string]string{
-				designateZoneID:          "zone-2",
-				designateRecordSetID:     expected[3].ID,
-				designateOriginalRecords: "10.2.1.1\00010.3.3.2",
+				dnsZoneID:          "zone-2",
+				dnsRecordSetID:     expected[3].ID,
+				dnsOriginalRecords: "10.2.1.1\00010.3.3.2",
 			},
 		},
 	}

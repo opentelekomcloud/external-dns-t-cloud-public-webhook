@@ -1,6 +1,6 @@
 .PHONY: all build
 
-PROJ_NAME = external-dns-openstack-webhook
+PROJ_NAME = external-dns-t-cloud-public-webhook
 
 all: build
 
