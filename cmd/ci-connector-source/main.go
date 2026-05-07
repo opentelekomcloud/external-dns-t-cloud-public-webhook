@@ -19,7 +19,11 @@ func main() {
 	if err != nil {
 		fatalf("listen on %s: %v", addr, err)
 	}
-	defer listener.Close()
+	defer func() {
+		if closeErr := listener.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "close listener: %v\n", closeErr)
+		}
+	}()
 
 	fmt.Printf("connector source listening on %s for zone %s\n", addr, zoneName)
 
@@ -27,7 +31,11 @@ func main() {
 	if err != nil {
 		fatalf("accept connection: %v", err)
 	}
-	defer conn.Close()
+	defer func() {
+		if closeErr := conn.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "close connection: %v\n", closeErr)
+		}
+	}()
 
 	if err := gob.NewEncoder(conn).Encode(buildEndpoints(zoneName)); err != nil {
 		fatalf("encode endpoints: %v", err)
