@@ -56,7 +56,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install OpenStack CLI
-        run: python -m pip install --upgrade pip python-openstackclient python-designateclient
+        run: python -m pip install --upgrade pip python-openstackclient python-designateclient otcextensions
 
       - name: Prepare cloud credentials
         run: |
@@ -68,17 +68,27 @@ jobs:
       - name: Resolve test zone
         id: zone
         env:
+          PUBLIC_ZONE_ID: ${{ secrets.OS_PUBLIC_ZONE_ID }}
           PUBLIC_ZONE_NAME: ${{ secrets.OS_PUBLIC_ZONE_NAME }}
+          PRIVATE_ZONE_ID: ${{ secrets.OS_PRIVATE_ZONE_ID }}
           PRIVATE_ZONE_NAME: ${{ secrets.OS_PRIVATE_ZONE_NAME }}
         run: |
           if [ "${{ matrix.zone_type }}" = "private" ]; then
+            zone_id="$PRIVATE_ZONE_ID"
             zone_name="$PRIVATE_ZONE_NAME"
           else
+            zone_id="$PUBLIC_ZONE_ID"
             zone_name="$PUBLIC_ZONE_NAME"
           fi
 
+          if [ -n "$zone_id" ]; then
+            echo "zone_name=$zone_name" >> "$GITHUB_OUTPUT"
+            echo "zone_id=$zone_id" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           if [ -z "$zone_name" ]; then
-            echo "Missing zone name secret for ${{ matrix.zone_type }} zone" >&2
+            echo "Missing zone identifier for ${{ matrix.zone_type }} zone. Set OS_*_ZONE_ID or OS_*_ZONE_NAME." >&2
             exit 1
           fi
 
@@ -94,6 +104,14 @@ jobs:
       - name: Build external-dns
         run: make build
         working-directory: ./external-dns
+
+      - name: Log in to GitHub Container Registry
+        if: github.event_name == 'pull_request'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Start webhook from PR package
         if: github.event_name == 'pull_request'
