@@ -15,6 +15,7 @@ fi
   --txt-owner-id "${TXT_OWNER_ID}" \
   --provider webhook \
   --source fake \
+  --fqdn-template "{{ .Name }}.${ZONE_NAME}" \
   --domain-filter "${ZONE_NAME}" \
   --policy sync \
   --log-level=debug \
