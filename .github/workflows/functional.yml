@@ -18,7 +18,6 @@ concurrency:
 env:
   OS_CLIENT_CONFIG_FILE: ${{ github.workspace }}/.ci/t-cloud-public/clouds.yaml
   OS_CLOUD: ${{ secrets.OS_CLOUD }}
-  EXTERNAL_DNS_VERSION: v0.21.0
 
 jobs:
   functional:
@@ -59,47 +58,20 @@ jobs:
         run: python -m pip install --upgrade pip python-openstackclient python-designateclient otcextensions
 
       - name: Prepare cloud credentials
-        run: |
-          mkdir -p "$(dirname "$OS_CLIENT_CONFIG_FILE")"
-          cat > "$OS_CLIENT_CONFIG_FILE" <<'EOF'
-          ${{ secrets.OS_CLOUDS_YAML }}
-          EOF
+        run: bash ./scripts/ci/prepare_cloud_credentials.sh
+        env:
+          OS_CLOUDS_YAML_CONTENT: ${{ secrets.OS_CLOUDS_YAML }}
 
-      - name: Resolve test zone
+      - name: Create ephemeral test zone
         id: zone
         env:
-          PUBLIC_ZONE_ID: ${{ secrets.OS_PUBLIC_ZONE_ID }}
-          PUBLIC_ZONE_NAME: ${{ secrets.OS_PUBLIC_ZONE_NAME }}
-          PRIVATE_ZONE_ID: ${{ secrets.OS_PRIVATE_ZONE_ID }}
-          PRIVATE_ZONE_NAME: ${{ secrets.OS_PRIVATE_ZONE_NAME }}
-        run: |
-          if [ "${{ matrix.zone_type }}" = "private" ]; then
-            zone_id="$PRIVATE_ZONE_ID"
-            zone_name="$PRIVATE_ZONE_NAME"
-          else
-            zone_id="$PUBLIC_ZONE_ID"
-            zone_name="$PUBLIC_ZONE_NAME"
-          fi
-
-          if [ -n "$zone_id" ]; then
-            echo "zone_name=$zone_name" >> "$GITHUB_OUTPUT"
-            echo "zone_id=$zone_id" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if [ -z "$zone_name" ]; then
-            echo "Missing zone identifier for ${{ matrix.zone_type }} zone. Set OS_*_ZONE_ID or OS_*_ZONE_NAME." >&2
-            exit 1
-          fi
-
-          zone_id="$(openstack dns zone list --name "$zone_name" -f value -c id | head -n1)"
-          if [ -z "$zone_id" ]; then
-            echo "Unable to resolve zone $zone_name" >&2
-            exit 1
-          fi
-
-          echo "zone_name=$zone_name" >> "$GITHUB_OUTPUT"
-          echo "zone_id=$zone_id" >> "$GITHUB_OUTPUT"
+          MATRIX_ZONE_TYPE: ${{ matrix.zone_type }}
+          OS_PUBLIC_ZONE_SUFFIX: ${{ secrets.OS_PUBLIC_ZONE_SUFFIX }}
+          OS_PRIVATE_ZONE_SUFFIX: ${{ secrets.OS_PRIVATE_ZONE_SUFFIX }}
+          OS_PRIVATE_ROUTER_ID: ${{ secrets.OS_PRIVATE_ROUTER_ID }}
+          OS_PRIVATE_ROUTER_REGION: ${{ secrets.OS_PRIVATE_ROUTER_REGION }}
+          OS_ZONE_EMAIL: ${{ secrets.OS_ZONE_EMAIL }}
+        run: python ./scripts/ci/create_test_zone.py
 
       - name: Build external-dns
         run: make build
@@ -117,76 +89,34 @@ jobs:
         if: github.event_name == 'pull_request'
         env:
           IMAGE_TAG: pr-${{ github.event.pull_request.number }}-${{ github.sha }}
-        run: |
-          docker run -d --rm \
-            --name webhook \
-            -p 8888:8888 \
-            -e OS_CLIENT_CONFIG_FILE=/etc/t-cloud-public/clouds.yaml \
-            -e OS_CLOUD="$OS_CLOUD" \
-            -e ZONE_TYPE=${{ matrix.zone_type }} \
-            -v "$PWD/.ci/t-cloud-public:/etc/t-cloud-public:ro" \
-            ghcr.io/${{ github.repository_owner }}/external-dns-t-cloud-public-webhook:"$IMAGE_TAG"
+          MATRIX_ZONE_TYPE: ${{ matrix.zone_type }}
+        run: bash ./scripts/ci/start_webhook_pr.sh
 
       - name: Start webhook from source
         if: github.event_name != 'pull_request'
-        run: |
-          go build -o ./build/bin/external-dns-t-cloud-public-webhook ./cmd/webhook
-          ZONE_TYPE=${{ matrix.zone_type }} ./build/bin/external-dns-t-cloud-public-webhook >/tmp/webhook.log 2>&1 &
+        env:
+          MATRIX_ZONE_TYPE: ${{ matrix.zone_type }}
+        run: bash ./scripts/ci/start_webhook_source.sh
 
       - name: Wait for webhook health
-        run: |
-          for _ in $(seq 1 60); do
-            if curl -fsS http://127.0.0.1:8080/healthz >/dev/null; then
-              exit 0
-            fi
-            sleep 2
-          done
-          echo "Webhook did not become healthy" >&2
-          exit 1
+        run: bash ./scripts/ci/wait_webhook_health.sh
 
       - name: Run external-dns fake source
         env:
           ZONE_NAME: ${{ steps.zone.outputs.zone_name }}
-        run: |
-          ./build/external-dns \
-            --txt-owner-id "ci-${{ github.run_id }}-${{ matrix.zone_type }}" \
-            --provider webhook \
-            --source fake \
-            --domain-filter "$ZONE_NAME" \
-            --policy sync \
-            --log-level=debug \
-            --once
+          TXT_OWNER_ID: ci-${{ github.run_id }}-${{ matrix.zone_type }}
+        run: bash ../scripts/ci/run_external_dns_fake.sh
         working-directory: ./external-dns
 
       - name: Wait for DNS changes to settle
         env:
           ZONE_ID: ${{ steps.zone.outputs.zone_id }}
-        run: |
-          for _ in $(seq 1 60); do
-            pending="$(openstack recordset list "$ZONE_ID" --status PENDING -f value -c id | wc -l | tr -d ' ')"
-            if [ "$pending" = "0" ]; then
-              exit 0
-            fi
-            sleep 2
-          done
-          echo "Recordsets are still pending" >&2
-          exit 1
+        run: bash ./scripts/ci/wait_recordsets.sh
 
       - name: Verify recordsets
         env:
           ZONE_ID: ${{ steps.zone.outputs.zone_id }}
-        run: |
-          a_count="$(openstack recordset list "$ZONE_ID" --type A -f value -c id | wc -l | tr -d ' ')"
-          txt_count="$(openstack recordset list "$ZONE_ID" --type TXT -f value -c id | wc -l | tr -d ' ')"
-
-          if [ "$a_count" -lt 10 ]; then
-            echo "Expected at least 10 A recordsets, got $a_count" >&2
-            exit 1
-          fi
-          if [ "$txt_count" -lt 10 ]; then
-            echo "Expected at least 10 TXT recordsets, got $txt_count" >&2
-            exit 1
-          fi
+        run: bash ./scripts/ci/verify_recordsets.sh
 
       - name: Show webhook log
         if: always() && github.event_name != 'pull_request'
@@ -195,3 +125,9 @@ jobs:
       - name: Show container log
         if: always() && github.event_name == 'pull_request'
         run: docker logs webhook
+
+      - name: Cleanup test zone
+        if: always() && steps.zone.outputs.zone_id != ''
+        env:
+          ZONE_ID: ${{ steps.zone.outputs.zone_id }}
+        run: python ./scripts/ci/cleanup_test_zone.py
