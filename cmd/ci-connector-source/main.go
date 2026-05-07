@@ -27,18 +27,21 @@ func main() {
 
 	fmt.Printf("connector source listening on %s for zone %s\n", addr, zoneName)
 
-	conn, err := listener.Accept()
-	if err != nil {
-		fatalf("accept connection: %v", err)
-	}
-	defer func() {
-		if closeErr := conn.Close(); closeErr != nil {
-			fmt.Fprintf(os.Stderr, "close connection: %v\n", closeErr)
+	endpoints := buildEndpoints(zoneName)
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			fatalf("accept connection: %v", err)
 		}
-	}()
 
-	if err := gob.NewEncoder(conn).Encode(buildEndpoints(zoneName)); err != nil {
-		fatalf("encode endpoints: %v", err)
+		if err := gob.NewEncoder(conn).Encode(endpoints); err != nil {
+			_ = conn.Close()
+			fatalf("encode endpoints: %v", err)
+		}
+
+		if err := conn.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "close connection: %v\n", err)
+		}
 	}
 }
 
