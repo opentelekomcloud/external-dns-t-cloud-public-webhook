@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	webhookServerAddr = "127.0.0.1:8888"
+	webhookServerAddr = "0.0.0.0:8888"
 	statusServerAddr  = "0.0.0.0:8080"
 )
 
