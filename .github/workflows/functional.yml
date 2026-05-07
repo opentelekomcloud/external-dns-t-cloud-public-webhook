@@ -111,12 +111,12 @@ jobs:
       - name: Wait for DNS changes to settle
         env:
           ZONE_ID: ${{ steps.zone.outputs.zone_id }}
-        run: bash ./scripts/ci/wait_recordsets.sh
+        run: python ./scripts/ci/wait_recordsets.py
 
       - name: Verify recordsets
         env:
           ZONE_ID: ${{ steps.zone.outputs.zone_id }}
-        run: bash ./scripts/ci/verify_recordsets.sh
+        run: python ./scripts/ci/verify_recordsets.py
 
       - name: Show webhook log
         if: always() && github.event_name != 'pull_request'
