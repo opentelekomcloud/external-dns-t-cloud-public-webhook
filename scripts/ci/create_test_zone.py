@@ -14,14 +14,21 @@ def require(name: str) -> str:
     return value
 
 
+def getenv_default(name: str, default: str) -> str:
+    value = os.environ.get(name, "")
+    if value:
+        return value
+    return default
+
+
 def main() -> int:
     cloud = require("OS_CLOUD")
     zone_type = require("MATRIX_ZONE_TYPE")
-    zone_email = os.environ.get("OS_ZONE_EMAIL", "ext-public@t-cloud.ext")
-    public_suffix = os.environ.get("OS_PUBLIC_ZONE_SUFFIX", "ext-public")
-    private_suffix = os.environ.get("OS_PRIVATE_ZONE_SUFFIX", "ext-private")
+    zone_email = getenv_default("OS_ZONE_EMAIL", "ext-public@t-cloud.ext")
+    public_suffix = getenv_default("OS_PUBLIC_ZONE_SUFFIX", "ext-public")
+    private_suffix = getenv_default("OS_PRIVATE_ZONE_SUFFIX", "ext-private")
     router_id = os.environ.get("OS_PRIVATE_ROUTER_ID", "")
-    router_region = os.environ.get("OS_PRIVATE_ROUTER_REGION", "eu-de")
+    router_region = getenv_default("OS_PRIVATE_ROUTER_REGION", "eu-de")
     github_output = require("GITHUB_OUTPUT")
     run_id = require("GITHUB_RUN_ID")
     run_attempt = require("GITHUB_RUN_ATTEMPT")
