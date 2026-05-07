@@ -2,7 +2,7 @@
 
 PROJ_NAME = external-dns-t-cloud-public-webhook
 GO ?= go
-GOLANGCI_LINT ?= golangci-lint
+GOLANGCI_LINT_VERSION ?= v2.11.4
 
 all: check build
 
@@ -11,7 +11,7 @@ build:
 	$(GO) build -o build/bin/$(PROJ_NAME) ./cmd/webhook
 
 lint:
-	$(GOLANGCI_LINT) run ./...
+	$(GO) run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION) run ./...
 
 vet:
 	$(GO) vet ./...

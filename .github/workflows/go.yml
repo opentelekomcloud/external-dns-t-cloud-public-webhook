@@ -2,12 +2,8 @@ name: ci
 
 on:
   pull_request:
-    types:
-      - opened
-      - synchronize
-      - reopened
-      - ready_for_review
-  push:
+    types: [opened, synchronize]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -28,11 +24,6 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-
-      - name: Install golangci-lint
-        run: |
-          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.7.1
-          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - name: Run checks
         run: make check
@@ -85,3 +76,15 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+  eco_check:
+    name: check
+    if: >
+      always()
+    needs: [check, package-pr]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Decide whether the needed jobs succeeded or failed
+        uses: re-actors/alls-green@release/v1
+        with:
+          jobs: ${{ toJSON(needs) }}
