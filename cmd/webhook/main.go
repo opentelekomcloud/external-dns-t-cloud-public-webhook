@@ -25,11 +25,14 @@ func main() {
 	var domainFilters []string
 	var zoneType string
 	pflag.StringArrayVar(&domainFilters, "domain-filter", []string{}, "List of domains to work on (can be specified multiple times)")
-	pflag.StringVar(&zoneType, "zone-type", "", "DNS zone visibility to manage: public or private; overrides OS_ZONE_TYPE")
+	pflag.StringVar(&zoneType, "zone-type", "", "DNS zone visibility to manage: public or private; overrides ZONE_TYPE")
 	pflag.Parse()
 
 	log.SetLevel(log.DebugLevel)
 
+	if zoneType == "" {
+		zoneType = os.Getenv("ZONE_TYPE")
+	}
 	if zoneType == "" {
 		zoneType = os.Getenv("OS_ZONE_TYPE")
 	}
