@@ -17,7 +17,7 @@ def require(name: str) -> str:
 def main() -> int:
     cloud = require("OS_CLOUD")
     zone_type = require("MATRIX_ZONE_TYPE")
-    zone_email = require("OS_ZONE_EMAIL")
+    zone_email = os.environ.get("OS_ZONE_EMAIL", "ext-public@t-cloud.ext")
     public_suffix = os.environ.get("OS_PUBLIC_ZONE_SUFFIX", "ext-public")
     private_suffix = os.environ.get("OS_PRIVATE_ZONE_SUFFIX", "ext-private")
     router_id = os.environ.get("OS_PRIVATE_ROUTER_ID", "")
