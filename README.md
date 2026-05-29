@@ -19,7 +19,7 @@ provider:
   webhook:
     image:
       repository: ghcr.io/opentelekomcloud/external-dns-t-cloud-public-webhook
-      tag: 1.1.2
+      tag: 1.1.3
     extraVolumeMounts:
       - name: tcloudpubliccloudsyaml
         mountPath: /etc/openstack/
