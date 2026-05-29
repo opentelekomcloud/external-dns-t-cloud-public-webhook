@@ -8,7 +8,7 @@ require (
 )
 
 require (
-	github.com/opentelekomcloud/gophertelekomcloud v0.9.5
+	github.com/opentelekomcloud/gophertelekomcloud v0.9.7
 	github.com/prometheus/client_golang v1.23.2
 	github.com/spf13/pflag v1.0.10
 )
