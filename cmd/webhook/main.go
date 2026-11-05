@@ -22,7 +22,9 @@ const (
 
 func main() {
 	var domainFilters []string
+	webhookAddr := webhookServerAddr
 	pflag.StringArrayVar(&domainFilters, "domain-filter", []string{}, "List of domains to work on (can be specified multiple times)")
+	pflag.StringVar(&webhookAddr, "webhook-addr", webhookServerAddr, "Address for the webhook API server")
 	pflag.Parse()
 
 	log.SetLevel(log.DebugLevel)
@@ -69,6 +71,6 @@ func main() {
 	metrics.TCloudPublicConnectionMetric.Set(1)
 	log.Debugf("Connected to T-Cloud Public API")
 
-	log.Debugf("Starting webhook server on %s", webhookServerAddr)
-	api.StartHTTPApi(dp, startedChan, 0, 0, webhookServerAddr)
+	log.Debugf("Starting webhook server on %s", webhookAddr)
+	api.StartHTTPApi(dp, startedChan, 0, 0, webhookAddr)
 }
